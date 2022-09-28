@@ -1,0 +1,176 @@
+cabextract (1.9-3) UNRELEASED; urgency=medium
+
+  * update
+
+ -- Eric Sharkey <sharkey@debian.org>  Wed, 25 May 2022 14:44:23 +0800
+
+cabextract (1.9-3) unstable; urgency=medium
+
+  * Incorporate patch to use regular automake via dh_autoreconf:
+    Closes: #950708
+
+ -- Eric Sharkey <sharkey@debian.org>  Wed, 05 Feb 2020 16:35:47 -0500
+
+cabextract (1.9-2) unstable; urgency=medium
+
+  * Force libmspack0 version >= 0.9.1-1 to avoid bugs in that
+    package: Closes: #914263
+
+ -- Eric Sharkey <sharkey@debian.org>  Sun, 09 Dec 2018 08:06:55 -0500
+
+cabextract (1.9-1) unstable; urgency=medium
+
+  * New upstream release: Closes: #913007
+
+ -- Eric Sharkey <sharkey@debian.org>  Sun, 11 Nov 2018 11:46:01 -0500
+
+cabextract (1.6-1.1) unstable; urgency=medium
+
+  * Non-maintainer upload.
+
+  [ Helmut Grohne ]
+  * Fix FTCBFS: Use dh_auto_configure and dh_auto_install: Closes: #839017
+
+ -- Manuel A. Fernandez Montecelo <mafm@debian.org>  Tue, 21 Nov 2017 00:33:32 +0100
+
+cabextract (1.6-1) unstable; urgency=medium
+
+  * New upstream release: Closes: #778753
+
+ -- Eric Sharkey <sharkey@debian.org>  Thu, 02 Apr 2015 19:36:53 -0400
+
+cabextract (1.5-1) unstable; urgency=low
+
+  * New upstream release
+  * Includes fix for null dereference: Closes: #773659
+
+ -- Eric Sharkey <sharkey@debian.org>  Sun, 08 Feb 2015 12:53:42 -0500
+
+cabextract (1.4-5) unstable; urgency=low
+
+  * Switch to an external mspack library: Closes: #675560
+
+ -- Eric Sharkey <sharkey@debian.org>  Tue, 16 Dec 2014 14:41:18 -0500
+
+cabextract (1.4-4) unstable; urgency=low
+
+  * Mark as multi-arch foreign: Closes: #700683
+
+ -- Eric Sharkey <sharkey@debian.org>  Sun, 17 Feb 2013 13:22:35 -0500
+
+cabextract (1.4-3) unstable; urgency=low
+
+  * make debian/rule build-arch depend on build-stamp: Closes: #666348
+  * make a patch file for a more proper quilt format package
+
+ -- Eric Sharkey <sharkey@debian.org>  Fri, 27 Apr 2012 18:54:29 -0400
+
+cabextract (1.4-2) unstable; urgency=low
+
+  * Enabled hardened build flags: Closes: #653509
+
+ -- Eric Sharkey <sharkey@debian.org>  Thu, 29 Dec 2011 07:55:33 -0500
+
+cabextract (1.4-1) unstable; urgency=low
+
+  * New upstream version
+
+ -- Eric Sharkey <sharkey@debian.org>  Sat, 21 May 2011 10:49:56 -0400
+
+cabextract (1.3-1) unstable; urgency=low
+
+  * New upstream version: Closes: #591552
+
+ -- Eric Sharkey <sharkey@debian.org>  Tue, 03 Aug 2010 23:38:56 -0400
+
+cabextract (1.2-4) unstable; urgency=low
+
+  * Remove developer-centric file format documentation from
+    package: Closes: #451698
+  * Integrate with KDE4: Closes: #528187
+  * Update to latest Debian packaging standards
+  * Change to quilt source format
+
+ -- Eric Sharkey <sharkey@debian.org>  Sun, 28 Mar 2010 08:51:58 -0400
+
+cabextract (1.2-3) unstable; urgency=low
+
+  * Add lcab manpage reference: Closes: #233278
+  * Change sourceforge reference to Debian package reference: Closes: #279712
+  * Move upstream web site: Closes: #475471
+
+ -- Eric Sharkey <sharkey@debian.org>  Tue, 15 Apr 2008 15:15:13 -0400
+
+cabextract (1.2-2) unstable; urgency=low
+
+  * merge patch to enhance KDE: Closes #377868
+
+ -- Eric Sharkey <sharkey@debian.org>  Thu, 26 Oct 2006 23:45:44 -0400
+
+cabextract (1.2-1) unstable; urgency=low
+
+  * New upstream
+  * upstream change Closes: #390014
+  * Upgrade to debhelper compatibility level 5
+
+ -- Eric Sharkey <sharkey@debian.org>  Wed, 25 Oct 2006 12:03:38 -0400
+
+cabextract (1.1-1) unstable; urgency=low
+
+  * New upstream
+  * upstream change Closes: #277522
+
+ -- Eric Sharkey <sharkey@debian.org>  Wed, 20 Oct 2004 14:04:05 -0400
+
+cabextract (1.0-1) unstable; urgency=low
+
+  * New upstream
+
+ -- Eric Sharkey <sharkey@debian.org>  Wed, 31 Mar 2004 11:16:44 -0500
+
+cabextract (0.6-1) unstable; urgency=low
+
+  * Add note to README.Debian explaining cabinfo (Closes: #102066)
+  * New upstream (Closes: #168068)
+
+ -- Eric Sharkey <sharkey@debian.org>  Tue, 29 Jul 2003 08:25:59 -0400
+
+cabextract (0.5-1) unstable; urgency=low
+
+  * New upstream release (Closes: #123961)
+
+ -- Eric Sharkey <sharkey@debian.org>  Mon,  6 May 2002 20:07:25 -0400
+
+cabextract (0.2-2) unstable; urgency=low
+
+  * Specify path to configure script (Closes: #89269)
+
+ -- Eric Sharkey <sharkey@debian.org>  Sun, 11 Mar 2001 22:17:10 -0500
+
+cabextract (0.2-1) unstable; urgency=low
+
+  * New Upstream Release
+
+ -- Eric Sharkey <sharkey@debian.org>  Tue,  6 Mar 2001 11:55:58 -0500
+
+cabextract (0.1-3) unstable; urgency=low
+
+  * Fix grammar: Closes: #82794
+
+ -- Eric Sharkey <sharkey@debian.org>  Fri, 26 Jan 2001 15:16:55 -0500
+
+cabextract (0.1-2) unstable; urgency=low
+
+  * Ignore documentation in New Maintainer's guide and install into
+    debian/cabextract rather than debian/tmp
+  * Closes: #83237
+
+ -- Eric Sharkey <sharkey@debian.org>  Wed, 24 Jan 2001 15:50:30 -0500
+
+cabextract (0.1-1) unstable; urgency=low
+
+  * Initial Release.
+  * Closes: 81492
+
+ -- Eric Sharkey <sharkey@debian.org>  Thu, 11 Jan 2001 13:05:48 -0500
+

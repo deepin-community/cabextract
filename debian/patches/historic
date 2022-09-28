@@ -1,0 +1,34 @@
+Description: pre-quilt changes
+ This patch gathers together small changes introduced prior to the
+ cabextract package becoming a quilt package.
+
+--- a/README
++++ b/README
+@@ -2,7 +2,7 @@
+ (C) 2000-2018 Stuart Caie <kyzer@cabextract.org.uk>
+ This is free software with ABSOLUTELY NO WARRANTY.
+ 
+-Cabinet (.CAB) files are a form of archive, which Microsoft use to
++Cabinet (.CAB) files are a form of archive, which Microsoft uses to
+ distribute their software, and things like Windows Font Packs. The
+ cabextract program unpacks these files.
+ 
+--- a/mspack/cabd.c
++++ b/mspack/cabd.c
+@@ -676,7 +676,7 @@
+     /* FAQ avoidance strategy */
+     if ((offset == 0) && (EndGetI32(&buf[0]) == 0x28635349)) {
+       sys->message(fh, "WARNING; found InstallShield header. Use unshield "
+-                   "(https://github.com/twogood/unshield) to unpack this file"); 
++                   "(from the unshield package, or https://github.com/twogood/unshield) to unpack this file"); 
+     }
+ 
+     /* read through the entire buffer. */
+--- a/doc/cabextract.1
++++ b/doc/cabextract.1
+@@ -94,3 +94,5 @@
+ This manual page was written by Stuart Caie <kyzer@cabextract.org.uk>, based on
+ the one written by Eric Sharkey <sharkey@debian.org>, for the Debian
+ GNU/Linux system.
++.SH "SEE ALSO"
++.BR lcab (1)

@@ -1,0 +1,93 @@
+#!/usr/bin/make -f
+# Sample debian/rules that uses debhelper.
+# GNU copyright 1997 to 1999 by Joey Hess.
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+CFLAGS = `dpkg-buildflags --get CFLAGS`
+LDFLAGS = `dpkg-buildflags --get LDFLAGS`
+CPPFLAGS = `dpkg-buildflags --get CPPFLAGS`
+
+configure: configure-stamp
+configure-stamp:
+	dh_testdir
+	dh_autoreconf
+	# Add here commands to configure the package.
+	dh_auto_configure -- CPPFLAGS="$(CPPFLAGS)" CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" --with-external-libmspack=yes
+	
+
+	touch configure-stamp
+
+build: build-arch build-indep
+build-arch: build-stamp
+build-indep: build-stamp
+build-stamp: configure-stamp
+	dh_testdir
+
+	# Add here commands to compile the package.
+	$(MAKE)
+	cp ChangeLog changelog
+	#/usr/bin/docbook-to-man debian/cabextract.sgml > cabextract.1
+
+	touch build-stamp
+
+clean:
+	dh_autoreconf_clean
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp configure-stamp
+
+	# Add here commands to clean up after the build process.
+	[ ! -f Makefile ] || $(MAKE) clean
+
+	dh_clean
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_prep
+	dh_installdirs
+
+	# Add here commands to install the package into debian/cabextract.
+	dh_auto_install
+	cp $(CURDIR)/debian/cabextract.desktop $(CURDIR)/debian/cabextract/usr/share/apps/konqueror/servicemenus/
+	cp $(CURDIR)/debian/cabextract.desktop.kde4 $(CURDIR)/debian/cabextract/usr/share/kde4/services/ServiceMenus/cabextract.desktop
+	uudecode -o $(CURDIR)/debian/cabextract/usr/share/icons/cab_extract.png $(CURDIR)/debian/cab_extract.png.uu
+	uudecode -o $(CURDIR)/debian/cabextract/usr/share/icons/cab_view.png $(CURDIR)/debian/cab_view.png.uu
+
+
+# Build architecture-independent files here.
+binary-indep: build install
+# We have nothing to do by default.
+
+# Build architecture-dependent files here.
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+#	dh_installdebconf	
+	dh_installdocs
+	dh_installexamples
+	dh_installmenu
+#	dh_installemacsen
+#	dh_installpam
+#	dh_installinit
+	dh_installcron
+	dh_installman  $(CURDIR)/doc/cabextract.1
+	dh_installinfo
+#	dh_undocumented
+	dh_installchangelogs 
+	dh_link
+	dh_strip
+	dh_compress
+	dh_fixperms
+#	dh_makeshlibs
+	dh_installdeb
+#	dh_perl
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install configure
