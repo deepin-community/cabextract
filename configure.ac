@@ -1,10 +1,10 @@
 # -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
 AC_PREREQ([2.69])
-AC_INIT([cabextract],[1.9],[kyzer@cabextract.org.uk])
+AC_INIT([cabextract],[1.11],[kyzer@cabextract.org.uk])
 AM_INIT_AUTOMAKE
 AC_CONFIG_SRCDIR([src/cabextract.c])
-AC_CONFIG_HEADER([config.h])
+AC_CONFIG_HEADERS([config.h])
 
 # Checks for programs.
 AC_PROG_CC
@@ -18,11 +18,12 @@ AC_CHECK_HEADERS([getopt.h inttypes.h strings.h])
 # Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
 AC_C_INLINE
+AC_C_BIGENDIAN
 AC_TYPE_MODE_T
 AC_TYPE_OFF_T
 AC_TYPE_SIZE_T
-AC_CHECK_SIZEOF([off_t])
 AC_SYS_LARGEFILE
+AC_CHECK_SIZEOF([off_t])
 
 # Checks for library functions.
 AC_FUNC_FNMATCH

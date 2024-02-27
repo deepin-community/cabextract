@@ -1,6 +1,6 @@
 Summary: A program to extract Microsoft Cabinet files
 Name: cabextract
-Version: 1.9
+Version: 1.11
 Release: 1
 License: GPL
 Group: Applications/Archiving
