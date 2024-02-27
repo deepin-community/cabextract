@@ -1,8 +1,8 @@
-cabextract (1.9-3) UNRELEASED; urgency=medium
+cabextract (1.11-1) unstable; urgency=low
 
-  * update
+  * New upstream release: Closes: #1040987
 
- -- Eric Sharkey <sharkey@debian.org>  Wed, 25 May 2022 14:44:23 +0800
+ -- Eric Sharkey <sharkey@debian.org>  Sat, 15 Jul 2023 13:32:21 -0400
 
 cabextract (1.9-3) unstable; urgency=medium
 

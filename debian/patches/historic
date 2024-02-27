@@ -5,7 +5,7 @@ Description: pre-quilt changes
 --- a/README
 +++ b/README
 @@ -2,7 +2,7 @@
- (C) 2000-2018 Stuart Caie <kyzer@cabextract.org.uk>
+ (C) 2000-2023 Stuart Caie <kyzer@cabextract.org.uk>
  This is free software with ABSOLUTELY NO WARRANTY.
  
 -Cabinet (.CAB) files are a form of archive, which Microsoft use to

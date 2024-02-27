@@ -1,5 +1,5 @@
 /* cabextract - a program to extract Microsoft Cabinet files
- * (C) 2000-2018 Stuart Caie <kyzer@cabextract.org.uk>
+ * (C) 2000-2023 Stuart Caie <kyzer@cabextract.org.uk>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,6 +43,7 @@
 #endif
 #include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 #if HAVE_ICONV
 # include <iconv.h>
@@ -81,39 +82,49 @@
 
 /* structures and global variables */
 struct option optlist[] = {
-  { "directory", 1, NULL, 'd' },
+  { "directory",    1, NULL, 'd' },
 #if HAVE_ICONV
-  { "encoding",  1, NULL, 'e' },
+  { "encoding",     1, NULL, 'e' },
 #endif
-  { "fix",       0, NULL, 'f' },
-  { "filter",    1, NULL, 'F' },
-  { "help",      0, NULL, 'h' },
-  { "list",      0, NULL, 'l' },
-  { "lowercase", 0, NULL, 'L' },
-  { "pipe",      0, NULL, 'p' },
-  { "quiet",     0, NULL, 'q' },
-  { "single",    0, NULL, 's' },
-  { "test",      0, NULL, 't' },
-  { "version",   0, NULL, 'v' },
-  { NULL,        0, NULL, 0   }
+  { "fix",          0, NULL, 'f' },
+  { "filter",       1, NULL, 'F' },
+  { "help",         0, NULL, 'h' },
+  { "list",         0, NULL, 'l' },
+  { "lowercase",    0, NULL, 'L' },
+  { "pipe",         0, NULL, 'p' },
+  { "quiet",        0, NULL, 'q' },
+  { "single",       0, NULL, 's' },
+  { "test",         0, NULL, 't' },
+  { "version",      0, NULL, 'v' },
+  { "interactive",  0, NULL, 'i' },
+  { "no-overwrite", 0, NULL, 'n' },
+  { "keep-symlinks",0, NULL, 'k' },
+  { NULL,           0, NULL,  0  }
 };
 
 #if HAVE_ICONV
-const char *OPTSTRING = "d:e:fF:hlLpqstv";
+const char *OPTSTRING = "d:e:fF:hlLpqstvink";
 #else
-const char *OPTSTRING = "d:fF:hlLpqstv";
+const char *OPTSTRING = "d:fF:hlLpqstvink";
 #endif
 
 struct file_mem {
   struct file_mem *next;
   dev_t st_dev;
-  ino_t st_ino; 
+  ino_t st_ino;
   char *from;
 };
 
+struct filter {
+  struct filter *next;
+  char *filter;
+};
+
 struct cabextract_args {
-  int help, lower, pipe, view, quiet, single, fix, test;
-  char *dir, *filter, *encoding;
+  int help, lower, pipe, view, quiet, single, fix, test, interactive,
+      no_overwrite, keep_symlinks;
+  char *dir, *encoding;
+  struct filter *filters;
 };
 
 /* global variables */
@@ -125,13 +136,22 @@ struct file_mem *cab_seen = NULL;
 
 mode_t user_umask = 0;
 
+/* answer from user to "overwrite file?" prompt */
+char answer[8] = "";
+
 struct cabextract_args args = {
-  0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   NULL, NULL, NULL
 };
 
 #if HAVE_ICONV
 iconv_t converter = NULL;
+/* names for the UTF-8 charset recognised by different iconv_open()s */
+char *utf8_names[] = {
+    "UTF-8", /* glibc, libiconv, FreeBSD, Solaris, not newlib or HPUX */
+    "UTF8",  /* glibc, libiconv (< 1.13), newlib, HPUX */
+    "UTF_8", /* newlib, Solaris */
+};
 #endif
 
 /** A special filename. Extracting to this filename will send the output
@@ -156,13 +176,13 @@ unsigned char md5_result[16];
 
 /* prototypes */
 static int process_cabinet(char *cabname);
-
 static void load_spanning_cabinets(struct mscabd_cabinet *basecab,
                                    char *basename);
 static char *find_cabinet_file(char *origcab, char *cabname);
 static int unix_path_seperators(struct mscabd_file *files);
 static char *create_output_name(const char *fname, const char *dir,
                                 int lower, int isunix, int unicode);
+static int can_write(char *fname);
 static void set_date_and_perm(struct mscabd_file *file, char *filename);
 
 #if HAVE_ICONV
@@ -175,8 +195,11 @@ static void convert_utf8_to_latin1(char *str);
 static void memorise_file(struct file_mem **fml, char *name, char *from);
 static int recall_file(struct file_mem *fml, char *name, char **from);
 static void forget_files(struct file_mem **fml);
-static int ensure_filepath(char *path);
+static void add_filter(char *arg);
+static void free_filters();
+static int ensure_filepath(char *path, int n);
 static char *cab_error(struct mscab_decompressor *cd);
+static void print_cli_args_error(const char *reason, const char *exec_name);
 
 static struct mspack_file *cabx_open(struct mspack_system *this,
                                      const char *filename, int mode);
@@ -203,36 +226,39 @@ static struct mspack_system cabextract_system = {
 int main(int argc, char *argv[]) {
   int i, err;
 
-   /* attempt to set a UTF8-based locale, so that tolower()/towlower()
-    * in create_output_name() lowercase more than just A-Z in ASCII.
-    *
-    * We don't attempt to pick up the system default locale, "",
-    * because it might not be compatible with ASCII/ISO-8859-1/Unicode
-    * character codes and would mess up lowercased filenames
-    */
-   char *locales[] = {
-       "C.UTF-8", /* https://sourceware.org/glibc/wiki/Proposals/C.UTF-8 */
-       "en_US.UTF-8", "en_GB.UTF8", "de_DE.UTF-8", "UTF-8", "UTF8"
-   };
-   for (i = 0; i < (sizeof(locales)/sizeof(*locales)); i++) {
+  /* attempt to set a UTF8-based locale, so that tolower()/towlower()
+   * in create_output_name() lowercase more than just A-Z in ASCII.
+   *
+   * We don't attempt to pick up the system default locale, "",
+   * because it might not be compatible with ASCII/ISO-8859-1/Unicode
+   * character codes and would mess up lowercased filenames
+   */
+  char *locales[] = {
+      "C.UTF-8", /* https://sourceware.org/glibc/wiki/Proposals/C.UTF-8 */
+      "en_US.UTF-8", "en_GB.UTF8", "de_DE.UTF-8", "UTF-8", "UTF8"
+  };
+  for (i = 0; i < (sizeof(locales)/sizeof(*locales)); i++) {
       if (setlocale(LC_CTYPE, locales[i])) break;
-   }
+  }
 
   /* parse options */
   while ((i = getopt_long(argc, argv, OPTSTRING, optlist, NULL)) != -1) {
     switch (i) {
-    case 'd': args.dir      = optarg; break;
-    case 'e': args.encoding = optarg; break;
-    case 'f': args.fix      = 1;      break;
-    case 'F': args.filter   = optarg; break;
-    case 'h': args.help     = 1;      break;
-    case 'l': args.view     = 1;      break;
-    case 'L': args.lower    = 1;      break;
-    case 'p': args.pipe     = 1;      break;
-    case 'q': args.quiet    = 1;      break;
-    case 's': args.single   = 1;      break;
-    case 't': args.test     = 1;      break;
-    case 'v': args.view     = 1;      break;
+    case 'd': args.dir              = optarg; break;
+    case 'e': args.encoding         = optarg; break;
+    case 'f': args.fix              = 1;      break;
+    case 'F': add_filter(optarg);             break;
+    case 'h': args.help             = 1;      break;
+    case 'l': args.view             = 1;      break;
+    case 'L': args.lower            = 1;      break;
+    case 'p': args.pipe             = 1;      break;
+    case 'q': args.quiet            = 1;      break;
+    case 's': args.single           = 1;      break;
+    case 't': args.test             = 1;      break;
+    case 'v': args.view             = 1;      break;
+    case 'i': args.interactive      = 1;      break;
+    case 'n': args.no_overwrite     = 1;      break;
+    case 'k': args.keep_symlinks    = 1;      break;
     }
   }
 
@@ -244,31 +270,48 @@ int main(int argc, char *argv[]) {
       argv[0]);
     fprintf(stderr,
       "Options:\n"
-      "  -v   --version     print version / list cabinet\n"
-      "  -h   --help        show this help page\n"
-      "  -l   --list        list contents of cabinet\n"
-      "  -t   --test        test cabinet integrity\n"
-      "  -q   --quiet       only print errors and warnings\n"
-      "  -L   --lowercase   make filenames lowercase\n"
-      "  -f   --fix         salvage as much as possible from corrupted cabinets\n");
+      "  -v   --version       print version / list cabinet\n"
+      "  -h   --help          show this help page\n"
+      "  -l   --list          list contents of cabinet\n"
+      "  -t   --test          test cabinet integrity\n"
+      "  -q   --quiet         only print errors and warnings\n"
+      "  -L   --lowercase     make filenames lowercase\n"
+      "  -f   --fix           salvage as much as possible from corrupted cabinets\n"
+      "  -i   --interactive   prompt whether to overwrite existing files\n"
+      "  -n   --no-overwrite  don't overwrite (skip) existing files\n"
+      "  -k   --keep-symlinks follow symlinked files/dirs when extracting\n");
     fprintf(stderr,
-      "  -p   --pipe        pipe extracted files to stdout\n"
-      "  -s   --single      restrict search to cabs on the command line\n"
-      "  -F   --filter      extract only files that match the given pattern\n"
+      "  -p   --pipe          pipe extracted files to stdout\n"
+      "  -s   --single        restrict search to cabs on the command line\n"
+      "  -F   --filter        extract only files that match the given pattern\n"
 #if HAVE_ICONV
-      "  -e   --encoding    assume non-UTF8 filenames have the given encoding\n"
+      "  -e   --encoding      assume non-UTF8 filenames have the given encoding\n"
 #endif
-      "  -d   --directory   extract all files to the given directory\n\n"
-      "cabextract %s (C) 2000-2018 Stuart Caie <kyzer@cabextract.org.uk>\n"
+      "  -d   --directory     extract all files to the given directory\n\n"
+      "cabextract %s (C) 2000-2023 Stuart Caie <kyzer@cabextract.org.uk>\n"
       "This is free software with ABSOLUTELY NO WARRANTY.\n",
       VERSION);
     return EXIT_FAILURE;
   }
 
   if (args.test && args.view) {
-    fprintf(stderr, "%s: You cannot use --test and --list at the same time.\n"
-            "Try '%s --help' for more information.\n", argv[0], argv[0]);
+    print_cli_args_error("You cannot use --test and --list at the same time.",
+                         argv[0]);
     return EXIT_FAILURE;
+  }
+
+  if (args.interactive) {
+    if (args.no_overwrite) {
+      print_cli_args_error("Option --interactive can't be used with"
+                           " --no-overwrite.", argv[0]);
+      return EXIT_FAILURE;
+    }
+
+    if (args.pipe) {
+      print_cli_args_error("Option --interactive cannot be used with --pipe.",
+                           argv[0]);
+      return EXIT_FAILURE;
+    }
   }
 
   if (optind == argc) {
@@ -278,8 +321,7 @@ int main(int argc, char *argv[]) {
       return 0;
     }
     else {
-      fprintf(stderr, "%s: No cabinet files specified.\nTry '%s --help' "
-              "for more information.\n", argv[0], argv[0]);
+        print_cli_args_error("No cabinet files specified.", argv[0]);
       return EXIT_FAILURE;
     }
   }
@@ -323,15 +365,18 @@ int main(int argc, char *argv[]) {
   cabd->set_param(cabd, MSCABD_PARAM_SALVAGE, args.fix);
 
 #if HAVE_ICONV
-  /* set up converter for given encoding */
-    if (args.encoding) {
-      if ((converter = iconv_open("UTF8", args.encoding)) == (iconv_t) -1) {
-        converter = NULL;
-        fprintf(stderr, "FATAL ERROR: encoding '%s' is not recognised\n",
-            args.encoding);
-        return EXIT_FAILURE;
-      }
+  /* set up converter from given encoding to UTF-8 */
+  if (args.encoding) {
+    for (i = 0; i < (sizeof(utf8_names)/sizeof(*utf8_names)); i++) {
+      converter = iconv_open(utf8_names[i], args.encoding);
+      if (converter != (iconv_t) -1) break;
     }
+    if (converter == (iconv_t) -1) {
+      fprintf(stderr, "FATAL ERROR: encoding '%s' is not recognised\n",
+          args.encoding);
+      return EXIT_FAILURE;
+    }
+  }
 #endif
 
   /* process cabinets */
@@ -430,8 +475,8 @@ static int process_cabinet(char *basename) {
     }
 
     /* the full UNIX output filename includes the output
-     * directory. However, for filtering purposes, we don't want to 
-     * include that. So, we work out where the filename part of the 
+     * directory. However, for filtering purposes, we don't want to
+     * include that. So, we work out where the filename part of the
      * output name begins. This is the same for every extracted file.
      */
     fname_offset = args.dir ? (strlen(args.dir) + 1) : 0;
@@ -446,12 +491,20 @@ static int process_cabinet(char *basename) {
         continue;
       }
 
-      /* if filtering, do so now. skip if file doesn't match filter */
-      if (args.filter &&
-          fnmatch(args.filter, &name[fname_offset], FNM_CASEFOLD))
-      {
-        free(name);
-        continue;
+      /* if filtering, do so now. skip if file doesn't match any filter */
+      if (args.filters) {
+        int matched = 0;
+        struct filter *f;
+        for (f = args.filters; f; f = f->next) {
+          if (!fnmatch(f->filter, &name[fname_offset], FNM_CASEFOLD)) {
+            matched = 1;
+            break;
+          }
+        }
+        if (!matched) {
+          free(name);
+          continue;
+        }
       }
 
       /* view, extract or test the file */
@@ -494,11 +547,11 @@ static int process_cabinet(char *basename) {
             errors++;
           }
         }
-        else {
+        else if (can_write(name)) {
           /* extracting to a regular file */
           if (!args.quiet) printf("  extracting %s\n", name);
 
-          if (!ensure_filepath(name)) {
+          if (!ensure_filepath(name, fname_offset)) {
             fprintf(stderr, "%s: can't create file path\n", name);
             errors++;
           }
@@ -511,6 +564,10 @@ static int process_cabinet(char *basename) {
               set_date_and_perm(file, name);
             }
           }
+        }
+        else {
+          /* can_write() said no */
+          if (!args.quiet) printf("  skipping %s\n", name);
         }
       }
       free(name);
@@ -753,7 +810,7 @@ static char *create_output_name(const char *fname, const char *dir,
     return NULL;
   }
 
-  /* copy directory prefix if needed */ 
+  /* copy directory prefix if needed */
   if (dir) {
     strcpy(name, dir);
     name[dirlen - 1] = '/';
@@ -878,6 +935,60 @@ static char *create_output_name(const char *fname, const char *dir,
 }
 
 /**
+ * Determines if the chosen file can be (over)written. If it doesn't exist,
+ * the answer is always yes. But if the file already exists, look at the
+ * command-line options to decide what to do:
+ *
+ * - if args.no_overwrite is set, never overwrite
+ * - if args.interactive is set, prompt the user on the terminal
+ * - otherwise, always overwrite
+ *
+ * If choosing to overwrite, normal behaviour is to unlink() the existing
+ * file, because if it were a symlink, writing to the file would write to
+ * the destination of the symlink. This is suppressed if args.keep_symlinks
+ * is set.
+ *
+ * @param name the name of the UNIX file to (over)write
+ * @return 1 if (over)writing should proceed, 0 if file should be skipped
+ */
+static int can_write(char *name) {
+    struct stat st_buf;
+
+    /* if file does not exist, always write */
+    if (stat(name, &st_buf) != 0) return 1;
+
+    /* if "-n" is set (no overwrite), always skip */
+    if (args.no_overwrite) return 0;
+
+    /* if interactive mode requested, ask the user */
+    if (args.interactive) {
+        if (answer[0] == 'N') {
+            return 0; /* always no */
+        }
+        else if (answer[0] != 'A') {
+            for (;;) {
+                printf("replace %s? [y]es, [n]o, [A]ll, [N]one: ", name);
+                fflush(stdout);
+                /* if fgets() fails (e.g. EOF), assume "no" */
+                if (!fgets(answer, sizeof(answer), stdin)) return 0;
+                if (answer[0] == 'n' || answer[0] == 'N') return 0;
+                if (answer[0] == 'y' || answer[0] == 'A') break;
+                printf("invalid response \"%s\", type y, n, A or N\n", answer);
+            }
+        }
+    }
+
+    /* yes, overwrite the file. if "-k" is not set, unlink() it first */
+    if (!args.keep_symlinks) {
+        if (unlink(name)) {
+            fprintf(stderr, "can't remove old %s: %s\n", name, strerror(errno));
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/**
  * Sets the last-modified time and file permissions on a file.
  *
  * @param file     the internal CAB file whose date, time and attributes will 
@@ -937,7 +1048,7 @@ static char *convert_filename(char *name) {
         if (errno == EILSEQ || errno == EINVAL) {
             /* invalid or incomplete multibyte sequence: skip it */
             i++; ilen--;
-            *o++ = 0xEF; *o++ = 0xBF; *o++ = 0xBD; olen += 3;
+            memcpy(o, "\xEF\xBF\xBD", 3); o += 3; olen += 3;
         }
         else /* E2BIG: should be impossible to get here */ {
             free(newname);
@@ -1059,27 +1170,79 @@ static void forget_files(struct file_mem **fml) {
 }
 
 /**
+ * Adds a filter to args.filters. On first call, sets up
+ * free_filters() to run at exit.
+ *
+ * @param arg filter to add
+ */
+static void add_filter(char *arg) {
+    struct filter *f = malloc(sizeof(struct filter));
+    if (f) {
+        if (!args.filters) {
+            atexit(free_filters);
+        }
+        f->next = args.filters;
+        f->filter = arg;
+        args.filters = f;
+    }
+}
+
+/** Frees all memory used by args.filters */
+static void free_filters() {
+    struct filter *f, *next;
+    for (f = args.filters; f; f = next) {
+        next = f->next;
+        free(f);
+    }
+}
+
+/**
  * Ensures that all directory components in a filepath exist. New directory
  * components are created, if necessary.
  *
+ * If args.keep_symlinks is not set, any symlink found the path (that comes
+ * after n chars) will be deleted to make way for a directory.
+ *
  * @param path the filepath to check
+ * @param n the number of chars of path NOT to test for symlinks
  * @return non-zero if all directory components in a filepath exist, zero
  *         if components do not exist and cannot be created
  */
-static int ensure_filepath(char *path) {
+static int ensure_filepath(char *path, int n) {
   struct stat st_buf;
-  char *p;
+  char *p, *parchive = &path[n];
   int ok;
 
   for (p = &path[1]; *p; p++) {
     if (*p != '/') continue;
     *p = '\0';
-    ok = (stat(path, &st_buf) == 0) && S_ISDIR(st_buf.st_mode);
+    if (p < parchive || args.keep_symlinks) {
+      /* not in the archive-determined part of the path, or keeping symlinks:
+       * merely check if this path element is a directory */
+      ok = (stat(path, &st_buf) == 0) && S_ISDIR(st_buf.st_mode);
+    }
+    else {
+      /* in the archive-determined part of the path and not keeping symlinks:
+       * use lstat() and delete symlinks if found */
+      ok = (lstat(path, &st_buf) == 0);
+      if (ok) {
+        if ((st_buf.st_mode & S_IFMT) == S_IFLNK) unlink(path);
+        ok = S_ISDIR(st_buf.st_mode);
+      }
+    }
     if (!ok) ok = (mkdir(path, 0777 & ~user_umask) == 0);
     *p = '/';
     if (!ok) return 0;
   }
   return 1;
+}
+
+/**
+ * Utility for printing wrong CLI args error messages.
+ */
+static void print_cli_args_error(const char *reason, const char *exec_name) {
+  fprintf(stderr, "%s: %s\nTry '%s --help' for more information.\n",
+          exec_name, reason, exec_name);
 }
 
 /**

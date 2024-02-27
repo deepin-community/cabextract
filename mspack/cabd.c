@@ -1,5 +1,5 @@
 /* This file is part of libmspack.
- * (C) 2003-2018 Stuart Caie.
+ * (C) 2003-2023 Stuart Caie.
  *
  * libmspack is free software; you can redistribute it and/or modify it under
  * the terms of the GNU Lesser General Public License (LGPL) version 2.1
@@ -76,7 +76,8 @@ static int cabd_read_headers(
   struct mspack_system *sys, struct mspack_file *fh,
   struct mscabd_cabinet_p *cab, off_t offset, int salvage, int quiet);
 static char *cabd_read_string(
-  struct mspack_system *sys, struct mspack_file *fh, int *error);
+  struct mspack_system *sys, struct mspack_file *fh, int permit_empty,
+  int *error);
 
 static struct mscabd_cabinet *cabd_search(
   struct mscab_decompressor *base, const char *filename);
@@ -156,10 +157,10 @@ struct mscab_decompressor *
     self->d               = NULL;
     self->error           = MSPACK_ERR_OK;
 
-    self->param[MSCABD_PARAM_SEARCHBUF] = 32768;
-    self->param[MSCABD_PARAM_FIXMSZIP]  = 0;
-    self->param[MSCABD_PARAM_DECOMPBUF] = 4096;
-    self->param[MSCABD_PARAM_SALVAGE]   = 0;
+    self->searchbuf_size  = 32768;
+    self->fix_mszip       = 0;
+    self->buf_size        = 4096;
+    self->salvage         = 0;
   }
   return (struct mscab_decompressor *) self;
 }
@@ -203,7 +204,7 @@ static struct mscabd_cabinet *cabd_open(struct mscab_decompressor *base,
   if ((fh = sys->open(sys, filename, MSPACK_SYS_OPEN_READ))) {
     if ((cab = (struct mscabd_cabinet_p *) sys->alloc(sys, sizeof(struct mscabd_cabinet_p)))) {
       cab->base.filename = filename;
-      error = cabd_read_headers(sys, fh, cab, (off_t) 0, self->param[MSCABD_PARAM_SALVAGE], 0);
+      error = cabd_read_headers(sys, fh, cab, (off_t) 0, self->salvage, 0);
       if (error) {
         cabd_close(base, (struct mscabd_cabinet *) cab);
         cab = NULL;
@@ -394,17 +395,17 @@ static int cabd_read_headers(struct mspack_system *sys,
 
   /* read name and info of preceeding cabinet in set, if present */
   if (cab->base.flags & cfheadPREV_CABINET) {
-    cab->base.prevname = cabd_read_string(sys, fh, &err);
+    cab->base.prevname = cabd_read_string(sys, fh, 0, &err);
     if (err) return err;
-    cab->base.previnfo = cabd_read_string(sys, fh, &err);
+    cab->base.previnfo = cabd_read_string(sys, fh, 1, &err);
     if (err) return err;
   }
 
   /* read name and info of next cabinet in set, if present */
   if (cab->base.flags & cfheadNEXT_CABINET) {
-    cab->base.nextname = cabd_read_string(sys, fh, &err);
+    cab->base.nextname = cabd_read_string(sys, fh, 0, &err);
     if (err) return err;
-    cab->base.nextinfo = cabd_read_string(sys, fh, &err);
+    cab->base.nextinfo = cabd_read_string(sys, fh, 1, &err);
     if (err) return err;
   }
 
@@ -508,7 +509,7 @@ static int cabd_read_headers(struct mspack_system *sys,
     file->date_y = (x >> 9) + 1980;
 
     /* get filename */
-    file->filename = cabd_read_string(sys, fh, &err);
+    file->filename = cabd_read_string(sys, fh, 0, &err);
 
     /* if folder index or filename are bad, either skip it or fail */
     if (err || !file->folder) {
@@ -535,7 +536,8 @@ static int cabd_read_headers(struct mspack_system *sys,
 }
 
 static char *cabd_read_string(struct mspack_system *sys,
-                              struct mspack_file *fh, int *error)
+                              struct mspack_file *fh, int permit_empty,
+                              int *error)
 {
   off_t base = sys->tell(fh);
   char buf[256], *str;
@@ -549,8 +551,8 @@ static char *cabd_read_string(struct mspack_system *sys,
 
   /* search for a null terminator in the buffer */
   for (i = 0, ok = 0; i < len; i++) if (!buf[i]) { ok = 1; break; }
-  /* reject empty strings */
-  if (i == 0) ok = 0;
+  /* optionally reject empty strings */
+  if (i == 0 && !permit_empty) ok = 0;
 
   if (!ok) {
     *error = MSPACK_ERR_DATAFORMAT;
@@ -600,7 +602,7 @@ static struct mscabd_cabinet *cabd_search(struct mscab_decompressor *base,
   sys = self->system;
 
   /* allocate a search buffer */
-  search_buf = (unsigned char *) sys->alloc(sys, (size_t) self->param[MSCABD_PARAM_SEARCHBUF]);
+  search_buf = (unsigned char *) sys->alloc(sys, (size_t) self->searchbuf_size);
   if (!search_buf) {
     self->error = MSPACK_ERR_NOMEMORY;
     return NULL;
@@ -649,12 +651,12 @@ static int cabd_find(struct mscab_decompressor_p *self, unsigned char *buf,
   struct mspack_system *sys = self->system;
   unsigned char *p, *pend, state = 0;
   unsigned int cablen_u32 = 0, foffset_u32 = 0;
-  int false_cabs = 0, salvage = self->param[MSCABD_PARAM_SALVAGE];
+  int false_cabs = 0;
 
-#if !LARGEFILE_SUPPORT
+#if SIZEOF_OFF_T < 8
   /* detect 32-bit off_t overflow */
   if (flen < 0) {
-    sys->message(fh, largefile_msg);
+    sys->message(fh, "library not compiled to support large files.");
     return MSPACK_ERR_OK;
   }
 #endif
@@ -664,8 +666,8 @@ static int cabd_find(struct mscab_decompressor_p *self, unsigned char *buf,
     /* search length is either the full length of the search buffer, or the
      * amount of data remaining to the end of the file, whichever is less. */
     length = flen - offset;
-    if (length > self->param[MSCABD_PARAM_SEARCHBUF]) {
-      length = self->param[MSCABD_PARAM_SEARCHBUF];
+    if (length > self->searchbuf_size) {
+      length = self->searchbuf_size;
     }
 
     /* fill the search buffer with data from disk */
@@ -729,14 +731,14 @@ static int cabd_find(struct mscab_decompressor_p *self, unsigned char *buf,
          * mode, don't check the alleged length, allow it to be garbage */
         if ((foffset_u32 < cablen_u32) &&
             ((caboff + (off_t) foffset_u32) < (flen + 32)) &&
-            (((caboff + (off_t) cablen_u32)  < (flen + 32)) || salvage))
+            (((caboff + (off_t) cablen_u32)  < (flen + 32)) || self->salvage))
         {
           /* likely cabinet found -- try reading it */
           if (!(cab = (struct mscabd_cabinet_p *) sys->alloc(sys, sizeof(struct mscabd_cabinet_p)))) {
             return MSPACK_ERR_NOMEMORY;
           }
           cab->base.filename = filename;
-          if (cabd_read_headers(sys, fh, cab, caboff, salvage, 1)) {
+          if (cabd_read_headers(sys, fh, cab, caboff, self->salvage, 1)) {
             /* destroy the failed cabinet */
             cabd_close((struct mscab_decompressor *) self,
                        (struct mscabd_cabinet *) cab);
@@ -753,10 +755,10 @@ static int cabd_find(struct mscab_decompressor_p *self, unsigned char *buf,
             /* cause the search to restart after this cab's data. */
             offset = caboff + (off_t) cablen_u32;
 
-#if !LARGEFILE_SUPPORT
+#if SIZEOF_OFF_T < 8
             /* detect 32-bit off_t overflow */
             if (offset < caboff) {
-              sys->message(fh, largefile_msg);
+              sys->message(fh, "library not compiled to support large files.");
               return MSPACK_ERR_OK;
             }
 #endif        
@@ -1012,7 +1014,7 @@ static int cabd_extract(struct mscab_decompressor *base,
   struct mscabd_folder_p *fol;
   struct mspack_system *sys;
   struct mspack_file *fh;
-  off_t filelen;
+  unsigned int filelen;
 
   if (!self) return MSPACK_ERR_ARGS;
   if (!file) return self->error = MSPACK_ERR_ARGS;
@@ -1029,8 +1031,8 @@ static int cabd_extract(struct mscab_decompressor *base,
    * or in salvage mode reduce file length so it fits 2GB limit
    */
   filelen = file->length;
-  if (filelen > CAB_LENGTHMAX || (file->offset + filelen) > CAB_LENGTHMAX) {
-    if (self->param[MSCABD_PARAM_SALVAGE]) {
+  if (filelen > (CAB_LENGTHMAX - file->offset)) {
+    if (self->salvage) {
       filelen = CAB_LENGTHMAX - file->offset;
     }
     else {
@@ -1048,9 +1050,9 @@ static int cabd_extract(struct mscab_decompressor *base,
   /* if file goes beyond what can be decoded, given an error.
    * In salvage mode, don't assume block sizes, just try decoding
    */
-  if (!self->param[MSCABD_PARAM_SALVAGE]) {
-    off_t maxlen = fol->base.num_blocks * CAB_BLOCKMAX;
-    if ((file->offset + filelen) > maxlen) {
+  if (!self->salvage) {
+    unsigned int maxlen = fol->base.num_blocks * CAB_BLOCKMAX;
+    if (file->offset > maxlen || filelen > (maxlen - file->offset)) {
       sys->message(NULL, "ERROR; file \"%s\" cannot be extracted, "
                    "cabinet set is incomplete", file->filename);
       return self->error = MSPACK_ERR_DECRUNCH;
@@ -1165,24 +1167,22 @@ static int cabd_init_decomp(struct mscab_decompressor_p *self, unsigned int ct)
   switch (ct & cffoldCOMPTYPE_MASK) {
   case cffoldCOMPTYPE_NONE:
     self->d->decompress = (int (*)(void *, off_t)) &noned_decompress;
-    self->d->state = noned_init(&self->d->sys, fh, fh,
-                                self->param[MSCABD_PARAM_DECOMPBUF]);
+    self->d->state = noned_init(&self->d->sys, fh, fh, self->buf_size);
     break;
   case cffoldCOMPTYPE_MSZIP:
     self->d->decompress = (int (*)(void *, off_t)) &mszipd_decompress;
-    self->d->state = mszipd_init(&self->d->sys, fh, fh,
-                                 self->param[MSCABD_PARAM_DECOMPBUF],
-                                 self->param[MSCABD_PARAM_FIXMSZIP]);
+    self->d->state = mszipd_init(&self->d->sys, fh, fh, self->buf_size,
+                                 self->fix_mszip);
     break;
   case cffoldCOMPTYPE_QUANTUM:
     self->d->decompress = (int (*)(void *, off_t)) &qtmd_decompress;
     self->d->state = qtmd_init(&self->d->sys, fh, fh, (int) (ct >> 8) & 0x1f,
-                               self->param[MSCABD_PARAM_DECOMPBUF]);
+                               self->buf_size);
     break;
   case cffoldCOMPTYPE_LZX:
     self->d->decompress = (int (*)(void *, off_t)) &lzxd_decompress;
     self->d->state = lzxd_init(&self->d->sys, fh, fh, (int) (ct >> 8) & 0x1f, 0,
-                               self->param[MSCABD_PARAM_DECOMPBUF], (off_t)0,0);
+                               self->buf_size, (off_t)0,0);
     break;
   default:
     return self->error = MSPACK_ERR_DATAFORMAT;
@@ -1221,10 +1221,10 @@ static int cabd_sys_read(struct mspack_file *file, void *buffer, int bytes) {
   struct mspack_system *sys = self->system;
   int avail, todo, outlen, ignore_cksum, ignore_blocksize;
 
-  ignore_cksum = self->param[MSCABD_PARAM_SALVAGE] ||
-    (self->param[MSCABD_PARAM_FIXMSZIP] && 
+  ignore_cksum = self->salvage ||
+    (self->fix_mszip && 
      ((self->d->comp_type & cffoldCOMPTYPE_MASK) == cffoldCOMPTYPE_MSZIP));
-  ignore_blocksize = self->param[MSCABD_PARAM_SALVAGE];
+  ignore_blocksize = self->salvage;
 
   todo = bytes;
   while (todo > 0) {
@@ -1244,7 +1244,7 @@ static int cabd_sys_read(struct mspack_file *file, void *buffer, int bytes) {
 
       /* check if we're out of input blocks, advance block counter */
       if (self->d->block++ >= self->d->folder->base.num_blocks) {
-        if (!self->param[MSCABD_PARAM_SALVAGE]) {
+        if (!self->salvage) {
           self->read_error = MSPACK_ERR_DATAFORMAT;
         }
         else {
@@ -1400,7 +1400,7 @@ static unsigned int cabd_checksum(unsigned char *data, unsigned int bytes,
   unsigned int len, ul = 0;
 
   for (len = bytes >> 2; len--; data += 4) {
-    cksum ^= ((data[0]) | (data[1]<<8) | (data[2]<<16) | (data[3]<<24));
+    cksum ^= EndGetI32(data);
   }
 
   switch (bytes & 3) {
@@ -1481,17 +1481,17 @@ static int cabd_param(struct mscab_decompressor *base, int param, int value) {
   switch (param) {
   case MSCABD_PARAM_SEARCHBUF:
     if (value < 4) return MSPACK_ERR_ARGS;
-    self->param[MSCABD_PARAM_SEARCHBUF] = value;
+    self->searchbuf_size = value;
     break;
   case MSCABD_PARAM_FIXMSZIP:
-    self->param[MSCABD_PARAM_FIXMSZIP] = value;
+    self->fix_mszip = value;
     break;
   case MSCABD_PARAM_DECOMPBUF:
     if (value < 4) return MSPACK_ERR_ARGS;
-    self->param[MSCABD_PARAM_DECOMPBUF] = value;
+    self->buf_size = value;
     break;
   case MSCABD_PARAM_SALVAGE:
-    self->param[MSCABD_PARAM_SALVAGE] = value;
+    self->salvage = value;
     break;
   default:
     return MSPACK_ERR_ARGS;
