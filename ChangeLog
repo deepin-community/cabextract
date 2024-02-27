@@ -1,3 +1,59 @@
+2023-02-19  Stuart Caie <kyzer@cabextract.org.uk>
+
+	* ensure_filepath(): had wrong logic, for the archive-controlled
+	part of a pathname, it was using the result of lstat() whether
+	it succeeded or not, and thus not creating directories when it
+	ought to. Fixed and added a testcase for cabextract's --directory
+	option. Thanks to iq2luc for raising the issue and offering a fix.
+
+2023-02-04  Stuart Caie <kyzer@cabextract.org.uk>
+
+	* src/cabextract.c: By default, cabextract will now overwrite
+	symlinks if they're in the path of files it wants to extract,
+	rather than follow them. This is also what unzip and tar do
+	by default. If you want to keep symlinks, use the new -k option.
+
+	This also adds new options regarding overwriting files. You can
+	now add the -n option to never overwrite, or the -i option
+	for an interactive prompt asking you if you want to overwrite.
+
+	Thanks to wereii for raising this issue and working on the
+	solution.
+
+2023-02-03  Stuart Caie <kyzer@cabextract.org.uk>
+
+	* configure.ac: do AC_CHECK_SIZEOF([off_t]) test only after
+	AC_SYS_LARGEFILE, because the latter can alter the size of off_t.
+
+2019-04-10  Stuart Caie <kyzer@cabextract.org.uk>
+
+	* src/cabextract.c: support more than one filter (-F) option in
+	cabextract, e.g. cabextract -F *.mov -F *.avi file.cab. Thanks
+	to caesarshift for the idea.
+
+2018-12-03 Stuart Caie <kyzer@cabextract.org.uk>
+
+	* test: support builddir being on a path that includes spaces
+
+2018-11-09 Stuart Caie <kyzer@cabextract.org.uk>
+
+	* test/case-utf8.test: Some environments (e.g. DJGPP) don't have a
+	UTF-8 locale, so won't pass the case.test testcase. Break it into
+	case-ascii.test and case-utf8.test, and skip the latter if
+	"cabextract -L" has no effect on non-ASCII filenames. Thanks to
+	Robert Riebisch for highlighting this.
+
+2018-11-08 Stuart Caie <kyzer@cabextract.org.uk>
+
+	* src/cabextract.c: make multiple attempts at iconv_open() with
+	different names for the UTF-8 encoding: "UTF-8", "UTF8" and "UTF_8".
+
+	"UTF8" works with glibc, libiconv, newlib, Solaris libc and FreeBSD
+	libc, while "UTF-8" doesn't work with newlib. But if you have
+	libiconv >= 1.13, it removes "UTF8" support unless you define
+	USE_HPUX_ALIASES, or patch it back in (as Cygwin does).
+	Thanks to Ryan Schmidt for letting me know about this.
+
 2018-11-03 Stuart Caie <kyzer@cabextract.org.uk>
 
 	* test: use the autotools test system instead of a custom makefile.
